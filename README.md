@@ -1,1 +1,1 @@
-# quiskit-hackathon-phoenix
+# qiskit-hackathon-phoenix
