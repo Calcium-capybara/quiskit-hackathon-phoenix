@@ -14,6 +14,12 @@ The source is `Linn_Handoff.zip`, SHA-256 `1fc38617595aa50f39d014c18c1876ec61b84
 | `src/processors.py` | `3ab334674b9fdb9cbae96318ebad88dbb9f8035820ad179e1a61397b16679cf3` |
 | `docs/handoff/Linn_Handoff.txt` (original note) | `0253cdfd691399a83ae7280ac3b0d1b9b3a1de4653e0a326865ef4f5fd060726` |
 
+**Update after merging `origin/main`.** Teammates had also committed these files to GitHub.
+- `src/processors.py` is identical to the zip.
+- The repository JSON files now come from `origin/main` and differ from the zip **only by a trailing newline**. The topology is unchanged, but the two JSON checksums above no longer match the committed files.
+- The team's `tests/test_processors.py` (by Calcium-capybara) is kept as-is.
+- Member 3's structural tests live in `tests/test_processor_configs.py`.
+
 ## Candidate topologies
 
 | | Processor A | Processor B |
@@ -23,7 +29,7 @@ The source is `Linn_Handoff.zip`, SHA-256 `1fc38617595aa50f39d014c18c1876ec61b84
 | Directed entries | 8 (each edge in both directions) | 24 (each edge in both directions) |
 | Structure | Tree branching at qubit 1 (not a linear chain); no triangles | Connected; all 9 qubits used; triangles (1,2,6) and (2,5,6); qubit 6 has degree 5 |
 
-`tests/test_processors.py` checks the following:
+`tests/test_processor_configs.py` checks the following:
 - **Qubit counts and indices:** 5 and 9 qubits, all indices valid, no self-loops.
 - **Edges:** no duplicate directed entries, every edge has its reverse, and the unique edges equal the lists above.
 - **Coverage:** every qubit is used and each graph is connected.
