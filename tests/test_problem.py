@@ -19,8 +19,10 @@ from src.problem import (
     cut_edges,
     cut_value,
     cut_value_from_bitstring,
+    cut_value_from_partition,
     index_to_assignment,
     partition,
+    partition_to_assignment,
     solve_exact,
     synthetic_unweighted_graph,
     synthetic_weighted_graph,
@@ -218,6 +220,28 @@ def test_index_assignment_roundtrip():
 
 def test_partition():
     assert partition((0, 1, 1, 0)) == ((0, 3), (1, 2))
+
+
+def test_partition_roundtrip_and_cut():
+    g = synthetic_weighted_graph()
+    assert partition_to_assignment(4, [0, 1], [2, 3]) == (0, 0, 1, 1)
+    assert partition_to_assignment(4, *partition((1, 0, 1, 1))) == (1, 0, 1, 1)
+    assert cut_value_from_partition(g, {0, 1}, {2, 3}) == 11.0  # hand-computed optimum
+    assert cut_value_from_partition(g, [0, 1, 2], [3]) == 7.0   # (2,3)=3 + (0,3)=4
+    assert cut_value_from_partition(g, [0, 1, 2, 3], []) == 0.0
+
+
+@pytest.mark.parametrize(
+    "side0,side1,exc",
+    [([0, 1], [1, 2, 3], ValueError),   # overlap
+     ([0, 1], [2], ValueError),          # vertex 3 missing
+     ([0, 0, 1], [2, 3], ValueError),    # repeated vertex
+     ([0, 1], [2, 4], ValueError),       # out of range
+     ([0, 1.0], [2, 3], TypeError)],     # non-int vertex
+)
+def test_invalid_partitions_rejected(side0, side1, exc):
+    with pytest.raises(exc):
+        partition_to_assignment(4, side0, side1)
 
 
 # -- exact reference ---------------------------------------------------------------

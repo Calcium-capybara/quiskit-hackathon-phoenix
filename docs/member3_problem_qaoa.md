@@ -21,6 +21,11 @@ An assignment x ∈ {0,1}^n puts vertex i on side x_i.
 
 Edges are stored canonically as `(u, v, w)` with u < v, sorted.
 
+**Evaluating a cut.** The objective can be computed from three input forms:
+- an assignment tuple, with `cut_value`;
+- a bitstring with an explicit order, with `cut_value_from_bitstring`;
+- a partition `(side0, side1)`, with `cut_value_from_partition`. The two sides must be disjoint and must cover every vertex.
+
 **Exact reference.** `solve_exact(graph)` enumerates all 2^n assignments (vectorised NumPy). It returns the optimum and *all* optimal assignments, including complementary pairs. It refuses n > 20 unless `max_nodes` is raised explicitly. The optimum is never hardcoded.
 
 ## 2. QAOA formulation
@@ -108,7 +113,10 @@ bound = qaoa.bind(gammas, betas)                 # or logical_circuit_for_routin
 - Lower SWAP count does not imply better Max-Cut quality. They are separate metrics.
 - Noiseless logical quality is the same on A and B by construction. A quality difference between them can only come from a noisy simulation, if the team implements one.
 
-**Member 2 (processors):** this module needs nothing from you. The official processor JSONs are consumed only by Member 4.
+**Member 2 (processors):** this module needs nothing from you. The processor JSONs are consumed only by Member 4.
+- Linn's *candidate* definitions are now in the repository: A has 5 qubits and 4 edges, B has 9 qubits and 12 edges. They are unmodified and structurally tested.
+- Open issues are listed in [processor_handoff_notes.md](processor_handoff_notes.md), including the 7-vs-9-qubit discrepancy for B and the lack of a check against the official diagram.
+- Width constraint only: the logical circuit uses one qubit per vertex, so a graph must have ≤ 5 vertices for A and ≤ 9 for B. No A/B comparison has been run.
 
 ## 6. Reproduction
 

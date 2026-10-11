@@ -333,6 +333,30 @@ def partition(assignment: Sequence[int]) -> tuple[tuple[int, ...], tuple[int, ..
     return side0, side1
 
 
+def partition_to_assignment(
+    num_nodes: int, side0: Iterable[int], side1: Iterable[int]
+) -> tuple[int, ...]:
+    """Inverse of :func:`partition`: vertices in ``side0`` get 0, in ``side1`` get 1.
+
+    The two sides must be disjoint and together contain every vertex exactly once.
+    """
+    s0, s1 = list(side0), list(side1)
+    for v in s0 + s1:
+        _vertex(v, num_nodes)
+    if len(set(s0)) != len(s0) or len(set(s1)) != len(s1):
+        raise ValueError("a vertex is listed twice within one side of the partition")
+    overlap = set(s0) & set(s1)
+    if overlap:
+        raise ValueError(f"vertices {sorted(overlap)} appear on both sides of the partition")
+    missing = set(range(num_nodes)) - set(s0) - set(s1)
+    if missing:
+        raise ValueError(f"vertices {sorted(missing)} are not assigned to either side")
+    x = [0] * num_nodes
+    for v in s1:
+        x[v] = 1
+    return tuple(x)
+
+
 # ---------------------------------------------------------------------------
 # Objective
 # ---------------------------------------------------------------------------
@@ -352,6 +376,11 @@ def cut_edges(graph: WeightedGraph, assignment: Sequence[int]) -> tuple[tuple[in
 
 def cut_value_from_bitstring(graph: WeightedGraph, bitstring: str, *, order: BitOrder) -> float:
     return cut_value(graph, bitstring_to_assignment(bitstring, graph.num_nodes, order=order))
+
+
+def cut_value_from_partition(graph: WeightedGraph, side0: Iterable[int], side1: Iterable[int]) -> float:
+    """Weighted cut of the partition ``side0 | side1`` (must cover all vertices)."""
+    return cut_value(graph, partition_to_assignment(graph.num_nodes, side0, side1))
 
 
 def all_cut_values(graph: WeightedGraph, *, max_nodes: int = DEFAULT_MAX_EXACT_NODES) -> np.ndarray:
