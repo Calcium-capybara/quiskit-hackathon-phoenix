@@ -64,6 +64,7 @@ from qiskit.quantum_info import SparsePauliOp, Statevector
 from scipy.optimize import minimize
 
 from src.problem import (
+    CUT_ATOL,
     DEFAULT_MAX_EXACT_NODES,
     ExactSolution,
     WeightedGraph,
@@ -310,6 +311,26 @@ def cut_distribution(samples: Sequence[DecodedSample]) -> dict[float, int]:
     return dict(sorted(dist.items()))
 
 
+def best_cut_with_statevector_probability(
+    probabilities: np.ndarray, cut_values: np.ndarray, threshold: float
+) -> float | None:
+    """Largest cut value among basis states whose statevector probability is ``> threshold``.
+
+    Statevector-derived (exact probabilities, no sampling): it says which cut
+    values the QAOA state supports, not what a finite number of shots observed.
+    Returns ``None`` if no state exceeds the threshold. Note: generic QAOA states
+    give every basis state non-negligible probability, so this is often just the
+    exact optimum; ``optimal_solution_probability`` is the more informative
+    statevector quality measure.
+    """
+    probabilities = np.asarray(probabilities, dtype=float)
+    cut_values = np.asarray(cut_values, dtype=float)
+    if probabilities.shape != cut_values.shape:
+        raise ValueError("probabilities and cut_values must have the same shape")
+    mask = probabilities > threshold
+    return float(cut_values[mask].max()) if mask.any() else None
+
+
 # ---------------------------------------------------------------------------
 # Optimisation
 # ---------------------------------------------------------------------------
@@ -332,11 +353,22 @@ class QAOAConfig:
             (sampled mean cut with ``shots`` per evaluation).
         shots: Shots for final sampling (and for the objective in ``"shots"`` mode).
         seed: Seed for initial points and the sampler.
-        gamma_range / beta_range: Uniform ranges for random initial angles.
-            Because C_hat is invariant under flipping all bits, the expectation is
-            pi/2-periodic in each beta, so [0, pi/2) suffices. The gamma period
-            depends on the weights (2*pi for integer weights), so the default
-            gamma range is a heuristic.
+        gamma_range / beta_range: INITIALISATION ranges only. Random starting
+            angles are drawn uniformly from them; they are NOT optimiser bounds.
+            ``scipy.optimize.minimize`` is called without ``bounds`` or
+            constraints, so COBYLA may move angles outside these ranges, and the
+            returned ``gammas``/``betas`` can lie outside them (e.g. a negative
+            beta). Range rationale: C_hat is invariant under flipping all bits,
+            so the expectation is pi/2-periodic in each beta and [0, pi/2) covers
+            every distinct mixer angle; the gamma period depends on the weights
+            (2*pi for integer weights), so [0, pi) is a heuristic choice, not a
+            mathematically required QAOA range.
+        statevector_probability_threshold: Probability above which a basis state
+            counts as "supported" by the optimised statevector for
+            ``QAOAResult.best_cut_with_statevector_probability`` (strict ``>``).
+            The default 1e-12 is far above double-precision round-off in
+            probabilities (~1e-16) yet below any probability that matters at
+            practical shot counts.
     """
 
     p: int = 1
@@ -350,8 +382,11 @@ class QAOAConfig:
     seed: int | None = 1234
     gamma_range: tuple[float, float] = (0.0, math.pi)
     beta_range: tuple[float, float] = (0.0, math.pi / 2)
+    statevector_probability_threshold: float = 1e-12
 
     def validate(self) -> None:
+        if not 0.0 <= self.statevector_probability_threshold < 1.0:
+            raise ValueError("statevector_probability_threshold must be in [0, 1)")
         if self.objective not in ("statevector", "shots"):
             raise ValueError(f"objective must be 'statevector' or 'shots', got {self.objective!r}")
         if self.n_restarts < 1 or self.maxiter < 1 or self.shots < 1:
@@ -393,6 +428,7 @@ def optimize_parameters(qaoa: QAOACircuit, config: QAOAConfig) -> tuple[list[flo
         if r == 0 and config.initial_point is not None:
             x0 = np.asarray(config.initial_point, dtype=float)
         else:
+            # Random starting point drawn from the INITIALISATION ranges (not bounds).
             x0 = np.concatenate([rng.uniform(*config.gamma_range, p), rng.uniform(*config.beta_range, p)])
         history: list[float] = []
 
@@ -401,6 +437,7 @@ def optimize_parameters(qaoa: QAOACircuit, config: QAOAConfig) -> tuple[list[flo
             history.append(val)
             return -val  # scipy minimises
 
+        # Unconstrained: no bounds are passed, so angles may leave the initialisation ranges.
         res = minimize(objective, x0, method=config.optimizer, tol=config.tol, options={"maxiter": config.maxiter})
         traces.append(
             OptimizationTrace(
@@ -426,10 +463,26 @@ def optimize_parameters(qaoa: QAOACircuit, config: QAOAConfig) -> tuple[list[flo
 class QAOAResult:
     """Structured logical (noiseless) QAOA result for integration/metrics.
 
-    ``expected_cut`` is the exact statevector expectation <C_hat> at the optimised
-    angles; ``sampled_mean_cut`` and ``best_observed_cut`` come from ``shots`` samples.
-    The best observed sample is NOT the expected value.
-    Approximation ratios are ``None`` when the exact optimum is 0.
+    Four distinct kinds of quantity -- do not mix them up:
+
+    * Exact classical reference (deterministic): ``exact``, ``optimal_value``.
+      ``None`` when the graph exceeded ``max_exact_nodes``.
+    * Statevector-derived (deterministic for fixed angles, up to floating point):
+      ``expected_cut``, ``expected_approximation_ratio``,
+      ``optimal_solution_probability``, ``best_cut_with_statevector_probability``
+      (max cut among states with probability > ``statevector_probability_threshold``).
+    * Finite-shot samples (stochastic, seeded by ``seed``): ``counts``,
+      ``cut_distribution``, ``sampled_mean_cut``, ``sampled_approximation_ratio``,
+      ``best_observed_*``, ``most_frequent_bitstring``. The best observed sample
+      is NOT the expected value.
+    * Optimiser status: ``optimizer_success`` is SciPy's termination flag for the
+      best restart (details in ``optimizer``). It says the optimiser stopped
+      normally, NOT that the Max-Cut optimum was found.
+
+    ``best_observed_is_exact_optimum`` is an explicit comparison
+    ``|best_observed_cut - optimal_value| <= CUT_ATOL``; ``None`` when no exact
+    reference is available. Approximation ratios are ``None`` when the exact
+    optimum is 0 or unavailable.
     """
 
     graph: dict[str, Any]
@@ -441,6 +494,8 @@ class QAOAResult:
     expected_cut: float
     expected_approximation_ratio: float | None
     optimal_solution_probability: float | None
+    best_cut_with_statevector_probability: float | None
+    statevector_probability_threshold: float
     shots: int
     seed: int | None
     counts: dict[str, int]
@@ -452,9 +507,11 @@ class QAOAResult:
     best_observed_assignment: list[int]
     best_observed_partition: list[list[int]]
     best_observed_ratio: float | None
+    best_observed_is_exact_optimum: bool | None
     most_frequent_bitstring: str
     bit_order: str
     evaluation_mode: str
+    optimizer_success: bool
     optimizer: dict[str, Any]
     circuit: dict[str, Any]
     runtime_seconds: float
@@ -492,7 +549,8 @@ def run_qaoa(
     expected = float(probs @ cut_values)
     p_opt = None
     if exact is not None:
-        p_opt = float(probs[np.isclose(cut_values, opt, rtol=0.0, atol=1e-9)].sum())
+        p_opt = float(probs[np.isclose(cut_values, opt, rtol=0.0, atol=CUT_ATOL)].sum())
+    sv_best = best_cut_with_statevector_probability(probs, cut_values, config.statevector_probability_threshold)
 
     counts = sample_counts(qaoa, gammas, betas, shots=config.shots, seed=config.seed)
     samples = decode_counts(graph, counts)
@@ -514,6 +572,8 @@ def run_qaoa(
         expected_cut=expected,
         expected_approximation_ratio=ratio(expected),
         optimal_solution_probability=p_opt,
+        best_cut_with_statevector_probability=sv_best,
+        statevector_probability_threshold=config.statevector_probability_threshold,
         shots=config.shots,
         seed=config.seed,
         counts=dict(sorted(counts.items())),
@@ -525,9 +585,11 @@ def run_qaoa(
         best_observed_assignment=list(best.assignment),
         best_observed_partition=[list(s) for s in best.partition],
         best_observed_ratio=ratio(best.cut_value),
+        best_observed_is_exact_optimum=(None if opt is None else abs(best.cut_value - opt) <= CUT_ATOL),
         most_frequent_bitstring=most_frequent,
         bit_order=BIT_ORDER,
         evaluation_mode=f"optimise:{config.objective}; report:statevector expectation + {config.shots} noiseless shots",
+        optimizer_success=best_trace.success,
         optimizer={
             "name": config.optimizer,
             "maxiter": config.maxiter,

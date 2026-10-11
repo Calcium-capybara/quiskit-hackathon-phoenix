@@ -39,6 +39,7 @@ from __future__ import annotations
 
 import json
 import math
+from collections.abc import Mapping, Sequence as SequenceABC
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Iterable, Literal, Sequence
@@ -52,6 +53,10 @@ DEFAULT_MAX_EXACT_NODES = 20
 
 #: Absolute tolerance used when comparing floating-point cut values.
 CUT_ATOL = 1e-9
+
+#: Team-defined G6 benchmark (6 vertices, 9 edges, integer weights 1..5).
+#: Team-defined, NOT organizer-provided; see the file's "status" field.
+DEFAULT_GRAPH_PATH = Path(__file__).resolve().parents[1] / "data" / "weighted_maxcut_g6.json"
 
 
 # ---------------------------------------------------------------------------
@@ -256,23 +261,168 @@ def _weight(value: Any, edge: tuple[int, int]) -> float:
 
 
 # ---------------------------------------------------------------------------
+# Strict loader for the team graph schema (data/weighted_maxcut_g6.json)
+# ---------------------------------------------------------------------------
+
+_G6_REQUIRED = ("num_vertices", "vertices", "edges")
+_G6_EDGE_KEYS = frozenset({"u", "v", "weight"})
+
+
+def _is_int(x: Any) -> bool:
+    """True for genuine integers; ``bool`` is excluded even though it subclasses ``int``."""
+    return isinstance(x, int) and not isinstance(x, bool)
+
+
+def parse_graph_dict(data: Any) -> WeightedGraph:
+    """Strictly validate a graph in the team JSON schema and return a :class:`WeightedGraph`.
+
+    Schema (as in ``data/weighted_maxcut_g6.json``)::
+
+        {"num_vertices": int >= 1,
+         "vertices": [0, 1, ..., num_vertices-1],          # exactly, in order
+         "edges": [{"u": int, "v": int, "weight": int}, ...],  # non-empty
+         "weight_range": [lo, hi],                          # optional, ints, 1 <= lo <= hi
+         "benchmark_id": str, ...}                          # optional; other keys ignored
+
+    Edge rules: endpoints are ints (not bool) in ``0..num_vertices-1``; no
+    self-loops; no duplicate or reversed-duplicate edges; each record has exactly
+    the keys ``u``, ``v``, ``weight``. Weights are ints (not bool, not float)
+    ``>= 1``, and within ``weight_range`` when it is given.
+
+    Raises ``TypeError`` for wrong types and ``ValueError`` for missing fields or
+    invalid values; messages name the offending field or edge index. Nothing is
+    repaired or defaulted.
+    """
+    if not isinstance(data, Mapping):
+        raise TypeError(f"graph data must be a JSON object, got {type(data).__name__}")
+    missing = [k for k in _G6_REQUIRED if k not in data]
+    if missing:
+        raise ValueError(f"graph data is missing required field(s): {missing}")
+
+    n = data["num_vertices"]
+    if not _is_int(n):
+        raise TypeError(f"'num_vertices' must be an int, got {type(n).__name__} {n!r}")
+    if n < 1:
+        raise ValueError(f"'num_vertices' must be >= 1, got {n}")
+
+    vertices = data["vertices"]
+    if not isinstance(vertices, list):
+        raise TypeError(f"'vertices' must be a list, got {type(vertices).__name__}")
+    for i, x in enumerate(vertices):
+        if not _is_int(x):
+            raise TypeError(f"'vertices'[{i}] must be an int, got {type(x).__name__} {x!r}")
+    if len(vertices) != n:
+        raise ValueError(f"'vertices' has {len(vertices)} entries but 'num_vertices' is {n}")
+    if vertices != list(range(n)):
+        raise ValueError(f"'vertices' must be exactly [0, ..., {n - 1}] in order, got {vertices}")
+
+    lo, hi = 1, None
+    if "weight_range" in data:
+        wr = data["weight_range"]
+        if not (isinstance(wr, list) and len(wr) == 2 and all(_is_int(x) for x in wr)):
+            raise TypeError(f"'weight_range' must be a list of two ints, got {wr!r}")
+        if not 1 <= wr[0] <= wr[1]:
+            raise ValueError(f"'weight_range' must satisfy 1 <= lo <= hi, got {wr}")
+        lo, hi = wr
+
+    edges = data["edges"]
+    if not isinstance(edges, list):
+        raise TypeError(f"'edges' must be a list, got {type(edges).__name__}")
+    if not edges:
+        raise ValueError("'edges' must not be empty")
+    seen: dict[tuple[int, int], int] = {}
+    parsed = []
+    for i, e in enumerate(edges):
+        where = f"edges[{i}]"
+        if not isinstance(e, Mapping):
+            raise TypeError(f"{where} must be an object with keys u, v, weight; got {e!r}")
+        if set(e) != _G6_EDGE_KEYS:
+            raise ValueError(
+                f"{where} must have exactly the keys ['u', 'v', 'weight']; "
+                f"missing {sorted(_G6_EDGE_KEYS - set(e))}, unexpected {sorted(set(e) - _G6_EDGE_KEYS)}"
+            )
+        u, v, w = e["u"], e["v"], e["weight"]
+        for key, x in (("u", u), ("v", v)):
+            if not _is_int(x):
+                raise TypeError(f"{where}.{key} must be an int vertex, got {type(x).__name__} {x!r}")
+            if not 0 <= x < n:
+                raise ValueError(f"{where}.{key}={x} is out of range 0..{n - 1}")
+        if u == v:
+            raise ValueError(f"{where} is a self-loop on vertex {u}")
+        key = (min(u, v), max(u, v))
+        if key in seen:
+            raise ValueError(f"{where} {key} duplicates edges[{seen[key]}] (undirected)")
+        seen[key] = i
+        if not _is_int(w):
+            raise TypeError(f"{where}.weight must be an int, got {type(w).__name__} {w!r}")
+        if w < lo or (hi is not None and w > hi):
+            rng = f"[{lo}, {hi}]" if hi is not None else f">= {lo}"
+            raise ValueError(f"{where}.weight={w} is outside the allowed range {rng}")
+        parsed.append((u, v, float(w)))
+
+    name = data.get("benchmark_id", "unnamed")
+    if not isinstance(name, str):
+        raise TypeError(f"'benchmark_id' must be a string, got {type(name).__name__}")
+    status = data.get("status", "unspecified")
+    return WeightedGraph(num_nodes=n, edges=tuple(parsed), name=name,
+                         source=status if isinstance(status, str) else "unspecified")
+
+
+def load_graph(path: str | Path = DEFAULT_GRAPH_PATH) -> WeightedGraph:
+    """Load and strictly validate a graph file in the team schema (default: G6).
+
+    See :func:`parse_graph_dict` for the rules. Invalid JSON raises ``ValueError``
+    naming the file; a missing file raises ``FileNotFoundError``.
+    """
+    path = Path(path)
+    with open(path, encoding="utf-8") as fh:
+        try:
+            data = json.load(fh)
+        except json.JSONDecodeError as exc:
+            raise ValueError(f"{path}: invalid JSON: {exc}") from exc
+    return parse_graph_dict(data)
+
+
+# ---------------------------------------------------------------------------
 # Assignments and bitstrings
 # ---------------------------------------------------------------------------
 
 
 def validate_assignment(graph: WeightedGraph, assignment: Sequence[Any]) -> tuple[int, ...]:
-    """Return ``assignment`` as a tuple of 0/1 ints, or raise a descriptive error."""
-    if isinstance(assignment, str):
+    """Return ``assignment`` as a tuple of 0/1 ints, or raise a descriptive error.
+
+    Accepted containers: ``list``, ``tuple`` (any ordered ``Sequence``) or a 1-D
+    numpy integer array, indexed by vertex. Rejected with ``TypeError``: strings
+    and bytes (use :func:`bitstring_to_assignment` so the bit order is explicit),
+    unordered or non-sequence inputs (``set``, ``dict``, generators, scalars),
+    and entries that are not integers -- including ``bool``/``numpy.bool_``
+    (``True`` is an ``int`` subclass but is not accepted as a bit) and floats
+    such as ``1.0``. Rejected with ``ValueError``: wrong length (including an
+    empty assignment), multi-dimensional arrays, and integers other than 0/1.
+    """
+    if isinstance(assignment, (str, bytes, bytearray)):
         raise TypeError(
             "assignment must be a sequence of 0/1 ints; convert strings with "
             "bitstring_to_assignment(..., order=...) so the bit order is explicit"
         )
-    values = tuple(assignment)
+    if isinstance(assignment, np.ndarray):
+        if assignment.ndim != 1:
+            raise ValueError(f"assignment array must be 1-D, got shape {assignment.shape}")
+        values = tuple(assignment.tolist())  # numpy scalars -> Python int/float/bool
+    elif isinstance(assignment, SequenceABC):
+        values = tuple(assignment)
+    else:
+        raise TypeError(
+            f"assignment must be an ordered sequence (list, tuple or 1-D numpy array), "
+            f"got {type(assignment).__name__}"
+        )
     if len(values) != graph.num_nodes:
         raise ValueError(f"assignment has length {len(values)}, expected {graph.num_nodes}")
     out = []
     for i, b in enumerate(values):
-        if isinstance(b, (bool, np.bool_)) or not isinstance(b, (int, np.integer)) or b not in (0, 1):
+        if isinstance(b, (bool, np.bool_)) or not isinstance(b, (int, np.integer)):
+            raise TypeError(f"assignment[{i}] must be the int 0 or 1, got {type(b).__name__} {b!r}")
+        if b not in (0, 1):
             raise ValueError(f"assignment[{i}] must be 0 or 1, got {b!r}")
         out.append(int(b))
     return tuple(out)

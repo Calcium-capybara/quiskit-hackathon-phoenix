@@ -21,6 +21,7 @@ from src.problem import (
     cut_value_from_bitstring,
     cut_value_from_partition,
     index_to_assignment,
+    load_graph,
     partition,
     partition_to_assignment,
     solve_exact,
@@ -162,8 +163,9 @@ def test_cut_edges_lists_crossing_edges():
 
 @pytest.mark.parametrize(
     "bad,exc",
-    [((0, 1, 0), ValueError), ((0, 1, 2, 0), ValueError), ((0, 1, 0.5, 0), ValueError),
-     ((True, 0, 0, 0), ValueError), ("0101", TypeError)],
+    # Non-int entries (float, bool) are TypeError; wrong length / out-of-range ints are ValueError.
+    [((0, 1, 0), ValueError), ((0, 1, 2, 0), ValueError), ((0, 1, 0.5, 0), TypeError),
+     ((True, 0, 0, 0), TypeError), ("0101", TypeError)],
 )
 def test_invalid_assignments_rejected(bad, exc):
     with pytest.raises(exc):
@@ -172,6 +174,48 @@ def test_invalid_assignments_rejected(bad, exc):
 
 def test_numpy_assignment_accepted():
     assert cut_value(synthetic_weighted_graph(), np.array([0, 0, 1, 1])) == 11.0
+
+
+# -- strict cut_value validation (hardening) -------------------------------------
+# G6 hand checks: (0,1,0,1,0,1) cuts (0,1)3+(0,5)4+(1,2)5+(2,3)3+(3,4)4+(4,5)5 = 24.
+
+
+@pytest.mark.parametrize("container", [list, tuple, np.array])
+def test_cut_value_valid_g6_assignment(container):
+    assert cut_value(load_graph(), container([0, 1, 0, 1, 0, 1])) == 24.0
+
+
+@pytest.mark.parametrize(
+    "bad",
+    [[0, 1, 0, 1, 0], [0, 1, 0, 1, 0, 1, 0], [], [0, 1, 2, 1, 0, 1], [0, 1, -1, 1, 0, 1],
+     np.array([[0, 1, 0], [1, 0, 1]])],
+    ids=["too_short", "too_long", "empty", "two", "minus_one", "2d_array"],
+)
+def test_cut_value_rejects_bad_lengths_and_values(bad):
+    with pytest.raises(ValueError):
+        cut_value(load_graph(), bad)
+
+
+@pytest.mark.parametrize(
+    "bad",
+    [[0, 1, 0, 1, 0, 0.5], [0, 1, 0, 1, 0, 1.0], [False, True, False, True, False, True],
+     np.array([False, True, False, True, False, True]), np.array([0.0, 1, 0, 1, 0, 1]),
+     [0, 1, 0, 1, 0, "1"], [0, 1, 0, 1, 0, None]],
+    ids=["half", "float_one", "bools", "numpy_bools", "numpy_floats", "str_entry", "none_entry"],
+)
+def test_cut_value_rejects_non_int_entries(bad):
+    with pytest.raises(TypeError):
+        cut_value(load_graph(), bad)
+
+
+@pytest.mark.parametrize(
+    "bad",
+    ["010101", b"\x00\x01\x00\x01\x00\x01", {0, 1}, {0: 0, 1: 1}, (b for b in [0, 1, 0, 1, 0, 1]), 5, None],
+    ids=["str", "bytes", "set", "dict", "generator", "int", "none"],
+)
+def test_cut_value_rejects_malformed_containers(bad):
+    with pytest.raises(TypeError):
+        cut_value(load_graph(), bad)
 
 
 # -- bitstrings -----------------------------------------------------------------

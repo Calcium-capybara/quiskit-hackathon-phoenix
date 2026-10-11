@@ -3,8 +3,11 @@
 > **Data provenance.** No official PS-O1 benchmark graph or weights have been supplied yet.
 > The only organizer document available, *Qiskit Fall Fest 2026 — All 20 Problems, Beginner Explanation*,
 > describes O1 conceptually and says the Challenge Kit determines the actual instances.
-> Every graph used in this module's tests and experiments is **SYNTHETIC** (`source="synthetic"`).
-> To use the official instance, load it with `WeightedGraph.from_json(...)` / `from_edges(..., source="official")`. No solver code changes are needed.
+> - **G6** (`data/weighted_maxcut_g6.json`) is the **team-defined** benchmark, *not* organizer-provided.
+>   It has 6 vertices, 9 edges, integer weights 1–5, total weight 29, and exact optimum 24 at `010101` / `101010` in vertex order.
+>   Load it with `load_graph()`.
+> - The `synthetic_*` graphs are **SYNTHETIC** development and test instances.
+> - If an official instance arrives, load it the same way. No solver code changes are needed.
 
 ## 1. Problem and objective
 
@@ -21,8 +24,23 @@ An assignment x ∈ {0,1}^n puts vertex i on side x_i.
 
 Edges are stored canonically as `(u, v, w)` with u < v, sorted.
 
+**Loading G6 (strict).** `load_graph(path=DEFAULT_GRAPH_PATH)` reads the team schema and returns a `WeightedGraph`. `parse_graph_dict(data)` does the same for in-memory data. Nothing is repaired or defaulted. Messages name the offending field or `edges[i]`.
+- **Raises `ValueError`:**
+  - required fields (`num_vertices`, `vertices`, `edges`) missing;
+  - `num_vertices` < 1, or `vertices` not exactly `[0..n−1]` in order (this includes a count mismatch);
+  - `edges` empty;
+  - an edge record without exactly the keys `u`/`v`/`weight`;
+  - an endpoint out of range, a self-loop, or a duplicate or reversed-duplicate edge;
+  - a weight outside `weight_range` (or < 1 when no range is given);
+  - invalid JSON.
+- **Raises `TypeError`:** a top level that isn't an object; or a `num_vertices`, vertex, endpoint or weight that isn't an `int`. **`bool` is rejected explicitly** (`True` is an `int` subclass), and so are floats like `3.0` and strings.
+
 **Evaluating a cut.** The objective can be computed from three input forms:
-- an assignment tuple, with `cut_value`;
+- an assignment tuple, with `cut_value`. Strict contract:
+  - accepts a list, tuple or 1-D NumPy integer array, indexed by vertex;
+  - `TypeError` for strings or bytes, unordered or non-sequence inputs (set, dict, generator, scalar), and non-`int` entries (bool, float, str, None);
+  - `ValueError` for a wrong length (including an empty assignment), a multi-dimensional array, or integers other than 0/1;
+  - valid assignments score exactly as before;
 - a bitstring with an explicit order, with `cut_value_from_bitstring`;
 - a partition `(side0, side1)`, with `cut_value_from_partition`. The two sides must be disjoint and must cover every vertex.
 
@@ -62,6 +80,10 @@ The **rightmost** character of a Qiskit counts key is vertex 0. Decode with
 `bitstring_to_assignment(key, n, order="qiskit")`. The `order` argument is mandatory so it can never be omitted by accident.
 Example (n=4): key `"1000"` → x = (0,0,0,1) → cut 7 on the synthetic weighted graph. Reading the key the wrong way round gives 10, and the tests catch that (mutation-checked: 5 failures).
 
+**G6 caveat.** G6's optimal strings `010101` and `101010` are reversals *and* complements of each other, so they score 24 in either reading. They **cannot detect** a reversal bug. The G6 bit-order tests therefore use non-symmetric keys:
+- `"000011"` → vertices {0,1} → cut 13; reading it reversed gives 9.
+- `"000100"` → vertex {2} → cut 11; reading it reversed gives 9.
+
 ## 4. Optimisation and evaluation (experiment settings, not official requirements)
 
 `QAOAConfig` defaults:
@@ -75,29 +97,48 @@ Example (n=4): key `"1000"` → x = (0,0,0,1) → cut 7 on the synthetic weighte
 | `objective` | `"statevector"` (exact expectation) or `"shots"` |
 | `shots` | 2048 |
 | `seed` | 1234 |
+| `statevector_probability_threshold` | `1e-12` |
 
-Random initial angles are drawn with γ ∈ [0, π) and β ∈ [0, π/2).
+**Initialization ranges are not bounds.** Random starting angles are drawn from `gamma_range = [0, π)` and `beta_range = [0, π/2)` in `optimize_parameters`. `scipy.optimize.minimize(method="COBYLA")` is called **without `bounds` or constraints**, so the optimizer may move outside these ranges.
+- The returned `gammas` and `betas` can lie outside them; an earlier synthetic run returned β = −0.39.
+- A user-supplied `initial_point` is used as given, without clipping.
+- A test checks that no bounds are passed.
+- The β range covers every distinct mixer angle, because the expectation is π/2-periodic in β. The γ range is a heuristic, not a required QAOA range.
 
-`run_qaoa(graph, config)` returns a `QAOAResult` (`.to_dict()` is JSON-safe) with these fields:
-- **Angles:** `gammas`, `betas`.
-- **Expected cut:** `expected_cut` (exact ⟨Ĉ⟩) and `expected_approximation_ratio`.
-- **Optimal-state probability:** `optimal_solution_probability`.
-- **Sample statistics:** `sampled_mean_cut`, `counts`, `cut_distribution`.
-- **Best sample:** `best_observed_cut`, `best_observed_bitstring`, `best_observed_assignment`, `best_observed_partition`, `best_observed_ratio`.
-- **Optimizer record:** `optimizer` (settings plus a per-restart trace: start/end point, nfev, success, message, history).
-- **Circuit and timing:** `circuit` (logical metadata), `runtime_seconds`.
+### Result schema (`run_qaoa(graph, config)` → `QAOAResult`, `.to_dict()` is JSON-safe)
 
-The best observed sample and the expected cut are reported separately. Ratios are `None` when the optimum is 0.
+| Kind | Fields | Meaning / guarantee |
+|---|---|---|
+| Exact reference (deterministic) | `exact`, `optimal_value` | Exhaustive-search optimum. `None` if n > `max_exact_nodes` |
+| Optimized parameters | `gammas`, `betas`, `p` | Best restart's final angles (unbounded; see above) |
+| Statevector (deterministic for given angles, up to floating point) | `expected_cut`, `expected_approximation_ratio` | Exact ⟨Ĉ⟩ and ⟨Ĉ⟩ / optimum |
+| | `optimal_solution_probability` | Total probability on all optimal assignments |
+| | `best_cut_with_statevector_probability`, `statevector_probability_threshold` | Max cut over basis states with probability **strictly >** threshold (default 1e-12). `None` if no state qualifies. Usually equals the optimum, because QAOA states spread probability widely. **Not** a sampled result |
+| Finite-shot (stochastic, seeded) | `counts`, `cut_distribution`, `sampled_mean_cut`, `sampled_approximation_ratio`, `shots`, `seed` | Noiseless `StatevectorSampler` samples (Qiskit-order keys) |
+| | `best_observed_cut` / `_bitstring` / `_assignment` / `_partition` / `_ratio`, `most_frequent_bitstring` | Best and most frequent sample. Not the expected value |
+| | `best_observed_is_exact_optimum` | Explicit comparison \|best_observed_cut − optimum\| ≤ 1e-9. `None` if no exact reference |
+| Optimizer status | `optimizer_success` | SciPy termination flag of the best restart. **Does not imply** the Max-Cut optimum was found, and `False` doesn't mean it wasn't. Both cases are tested |
+| | `optimizer` | Settings plus per-restart traces (start/end point, nfev, success, message, history) |
+| Metadata | `graph`, `bit_order`, `evaluation_mode`, `circuit`, `runtime_seconds` | |
 
-Sampling uses Qiskit's noiseless `StatevectorSampler`. **These are logical results and say nothing about either processor.**
+Ratios are `None` when the optimum is 0 or unavailable. **These are logical results and say nothing about either processor.**
+
+### Sources of variation
+- **Exhaustive search:** fully deterministic.
+- **Statevector quantities:** deterministic for fixed angles in a given numerical environment.
+- **Optimizer:** initial points come from `numpy.random.default_rng(seed)`; COBYLA itself is deterministic given its start point and objective.
+- **Finite-shot sampling:** `StatevectorSampler(seed=seed)`. The seed is passed through, and a test checks this.
+- **Shots objective mode:** in `objective="shots"` mode, every objective evaluation reuses the same sampler seed.
+- **`seed=None`:** gives non-reproducible runs.
+- **Scope of the reproducibility guarantee:** identical results are tested only for the same seed, config and environment (Python 3.14.7, Qiskit 2.5.2, SciPy 1.18.1, NumPy 2.5.4, Windows). Agreement across library versions, platforms or backends is **not** guaranteed.
 
 ## 5. Interface for teammates
 
 ```python
-from src.problem import WeightedGraph, solve_exact, bitstring_to_assignment, cut_value
+from src.problem import load_graph, solve_exact, bitstring_to_assignment, cut_value
 from src.qaoa_solver import build_qaoa_circuit, logical_circuit_for_routing, decode_counts, run_qaoa, QAOAConfig
 
-graph = WeightedGraph.from_json("data/raw/<official_graph>.json")   # once available
+graph = load_graph()                             # team-defined G6 (6 logical qubits)
 qaoa  = build_qaoa_circuit(graph, p=1)          # QAOACircuit: .circuit, .gammas, .betas, .metadata()
 bound = qaoa.bind(gammas, betas)                 # or logical_circuit_for_routing(graph, p, gammas, betas)
 ```
@@ -116,7 +157,7 @@ bound = qaoa.bind(gammas, betas)                 # or logical_circuit_for_routin
 **Member 2 (processors):** this module needs nothing from you. The processor JSONs are consumed only by Member 4.
 - Linn's *candidate* definitions are now in the repository: A has 5 qubits and 4 edges, B has 9 qubits and 12 edges. They are unmodified and structurally tested.
 - Open issues are listed in [processor_handoff_notes.md](processor_handoff_notes.md), including the 7-vs-9-qubit discrepancy for B and the lack of a check against the official diagram.
-- Width constraint only: the logical circuit uses one qubit per vertex, so a graph must have ≤ 5 vertices for A and ≤ 9 for B. No A/B comparison has been run.
+- Width constraint only: the logical circuit uses one qubit per vertex, so a graph must have ≤ 5 vertices for A and ≤ 9 for B. **G6 needs 6 qubits, so it does not fit the candidate 5-qubit Processor A as defined.** Report this limitation; don't shrink G6 to fit. No A/B comparison has been run.
 
 ## 6. Reproduction
 
@@ -129,8 +170,9 @@ The experiment script writes `results/tables/synthetic_logical_qaoa.json` and `.
 
 ## 7. Limitations
 
-- **Synthetic data only.** Graphs are synthetic until the official benchmark is provided.
+- **No official instance yet.** G6 is team-defined, and the `synthetic_*` graphs are for testing only.
 - **Exact methods are small-n.** Exact search and statevector evaluation are exponential. They are practical up to roughly 20 vertices (the guard), and in practice the target is ≤ 9 qubits, matching Processor B.
 - **Local optimizer.** COBYLA can stop in a local optimum or at `maxiter`. In the synthetic run at p ≥ 2, nfev reached 200, so those runs did not converge. Raise `maxiter` or `n_restarts` if needed.
-- **Heuristic γ range.** The default initial-γ range is a heuristic; the γ period depends on the weights.
+- **Heuristic γ range.** The default initial-γ range is a heuristic; the γ period depends on the weights. It is an initialization range only, not an optimizer bound.
+- **No G6 QAOA results committed.** Tests exercise G6, but no G6 experiment output has been generated or reported yet.
 - **Noiseless only.** No noise model is used. These results make no claim of quantum advantage.
