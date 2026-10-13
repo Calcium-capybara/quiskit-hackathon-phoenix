@@ -30,9 +30,11 @@ name one explicitly:
 * ``"vertex"`` (big-endian, human reading order): the *leftmost* character is
   vertex 0. Example, n=4: ``"0011"`` means x0=0, x1=0, x2=1, x3=1.
 
-PROVENANCE: no official PS-O1 benchmark graph has been supplied to the team yet.
-The graphs returned by the ``synthetic_*`` functions below are SYNTHETIC
-development/test instances only and must not be reported as the official benchmark.
+PROVENANCE: the PS-O1 Challenge Kit requires a fixed six-vertex weighted
+benchmark graph but does not prescribe one. The team's final, team-selected
+benchmark is G6 (``load_graph()``, ``data/weighted_maxcut_g6.json``). The graphs
+returned by the ``synthetic_*`` functions below are SYNTHETIC development/test
+instances only and must not be reported as the benchmark.
 """
 
 from __future__ import annotations
@@ -54,8 +56,8 @@ DEFAULT_MAX_EXACT_NODES = 20
 #: Absolute tolerance used when comparing floating-point cut values.
 CUT_ATOL = 1e-9
 
-#: Team-defined G6 benchmark (6 vertices, 9 edges, integer weights 1..5).
-#: Team-defined, NOT organizer-provided; see the file's "status" field.
+#: G6: the team's final, team-selected benchmark (6 vertices, 9 edges, integer weights 1..5).
+#: Not organizer-provided (the kit leaves the choice of graph to teams); see the file's "status" field.
 DEFAULT_GRAPH_PATH = Path(__file__).resolve().parents[1] / "data" / "weighted_maxcut_g6.json"
 
 

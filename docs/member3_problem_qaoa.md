@@ -1,13 +1,11 @@
 # Member 3 — Weighted Max-Cut and QAOA (`src/problem.py`, `src/qaoa_solver.py`)
 
-> **Data provenance.** No official PS-O1 benchmark graph or weights have been supplied yet.
-> The only organizer document available, *Qiskit Fall Fest 2026 — All 20 Problems, Beginner Explanation*,
-> describes O1 conceptually and says the Challenge Kit determines the actual instances.
-> - **G6** (`data/weighted_maxcut_g6.json`) is the **team-defined** benchmark, *not* organizer-provided.
+> **Benchmark.** The Challenge Kit requires a fixed six-vertex weighted benchmark graph for comparing Processors A, B and D but does not prescribe a specific graph.
+> - **G6** (`data/weighted_maxcut_g6.json`) is the team's **final, team-selected benchmark** (confirmed 2026-10-13). It is not an organizer-provided graph.
 >   It has 6 vertices, 9 edges, integer weights 1–5, total weight 29, and exact optimum 24 at `010101` / `101010` in vertex order.
 >   Load it with `load_graph()`.
-> - The `synthetic_*` graphs are **SYNTHETIC** development and test instances.
-> - If an official instance arrives, load it the same way. No solver code changes are needed.
+> - Use G6 unchanged for every comparable A/B/D experiment. Its edges, weights and vertex order are frozen, and the file's checksum is pinned by a test.
+> - The `synthetic_*` graphs are **SYNTHETIC** development and test instances only.
 
 ## 1. Problem and objective
 
@@ -155,7 +153,7 @@ Ratios are `None` when the optimum is 0 or unavailable. **These are logical resu
 from src.problem import load_graph, solve_exact, bitstring_to_assignment, cut_value
 from src.qaoa_solver import build_qaoa_circuit, logical_circuit_for_routing, decode_counts, run_qaoa, QAOAConfig
 
-graph = load_graph()                             # team-defined G6 (6 logical qubits)
+graph = load_graph()                             # final team-selected G6 (6 logical qubits)
 qaoa  = build_qaoa_circuit(graph, p=1)          # QAOACircuit: .circuit, .gammas, .betas, .metadata()
 bound = qaoa.bind(gammas, betas)                 # or logical_circuit_for_routing(graph, p, gammas, betas)
 ```
@@ -190,7 +188,7 @@ The experiment script writes `results/tables/synthetic_logical_qaoa.json` and `.
 
 ## 7. Limitations
 
-- **No official instance yet.** G6 is team-defined, and the `synthetic_*` graphs are for testing only.
+- **Team-selected benchmark.** G6 is our final benchmark, but not organizer-provided; the kit leaves the choice of graph to teams. The `synthetic_*` graphs are for testing only.
 - **Exact methods are small-n.** Exact search and statevector evaluation are exponential. They are practical up to roughly 20 vertices (the guard), and in practice the target is ≤ 9 qubits, matching Processor B.
 - **Local optimizer.** COBYLA can stop in a local optimum or at `maxiter`. In the synthetic run at p ≥ 2, nfev reached 200, so those runs did not converge. Raise `maxiter` or `n_restarts` if needed.
 - **Heuristic γ range.** The default initial-γ range is a heuristic; the γ period depends on the weights. It is an initialization range only, not an optimizer bound.

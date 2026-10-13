@@ -14,9 +14,9 @@ These modules contain no processor topology, routing or noise. Routing onto Proc
 
 An edge contributes its weight when its endpoints are on opposite sides. Each undirected edge is counted once. A cut and its complement have the same value.
 
-### Candidate graph G6 (`data/weighted_maxcut_g6.json`)
+### Benchmark graph G6 (`data/weighted_maxcut_g6.json`)
 
-**Team-defined, not an organizer-provided benchmark.** It has 6 vertices (0–5) and 9 edges with integer weights 1–5, for a total weight of 29:
+**Our final, team-selected benchmark** (confirmed 2026-10-13). The Challenge Kit requires a fixed six-vertex weighted benchmark graph for comparing Processors A, B and D but does not prescribe a specific graph, so G6 is our choice, not an organizer-provided graph. It is used unchanged for every comparable A/B/D experiment. It has 6 vertices (0–5) and 9 edges with integer weights 1–5, for a total weight of 29:
 
 | Edge | 0–1 | 0–2 | 0–5 | 1–2 | 1–3 | 2–3 | 2–4 | 3–4 | 4–5 |
 |---|---|---|---|---|---|---|---|---|---|
@@ -91,7 +91,7 @@ circ = logical_circuit_for_routing(g, p, gammas, betas)  # 6 qubits; ops: h, rzz
 
 ### Limitations
 
-- G6 is team-defined, and no organizer benchmark instance has been confirmed.
+- G6 is team-selected, not organizer-provided; the kit requires a fixed graph but leaves the choice to teams.
 - Results are noiseless logical simulations only, with no hardware or noise model.
 - COBYLA is a local optimizer that may stop at a local optimum or at `maxiter`.
 - Exact search and statevector evaluation are exponential; guarded to n ≤ 20.

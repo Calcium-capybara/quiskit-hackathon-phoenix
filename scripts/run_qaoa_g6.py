@@ -1,6 +1,6 @@
-"""Sample logical (noiseless) QAOA run on the team-defined G6 graph.
+"""Sample logical (noiseless) QAOA run on G6, the team's final benchmark graph.
 
-G6 is TEAM-DEFINED, not an organizer-provided benchmark. This is a logical
+G6 is team-selected, not organizer-provided. This is a logical
 simulation only: no processor topology, routing, or noise is involved.
 Prints a JSON summary; writes a file only if --output is given.
 

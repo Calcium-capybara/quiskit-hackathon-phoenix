@@ -1,7 +1,7 @@
 """Member 3 development experiment: logical (noiseless) QAOA vs exact optimum.
 
-SYNTHETIC GRAPHS ONLY -- these are NOT the official PS-O1 benchmark, which has
-not been supplied yet. No processor topology is involved here (logical circuits only).
+SYNTHETIC GRAPHS ONLY -- these are NOT the team benchmark (G6; see
+scripts/run_qaoa_g6.py). No processor topology is involved here (logical circuits only).
 
 Usage (from the repository root):
     python -m scripts.run_qaoa_synthetic
