@@ -96,7 +96,7 @@ Example (n=4): key `"1000"` → x = (0,0,0,1) → cut 7 on the synthetic weighte
 | `maxiter` | 200 |
 | `n_restarts` | 3 |
 | `objective` | `"statevector"` (exact expectation) or `"shots"` |
-| `shots` | 2048 |
+| `shots` | 4096 (Challenge Kit setting for reported sampled results) |
 | `seed` | 1234 |
 | `statevector_probability_threshold` | `1e-12` |
 
@@ -133,6 +133,7 @@ Previously, `shots=True`, `maxiter=2.5`, `seed=True` and `tol=-1` were accepted 
 | Finite-shot (stochastic, seeded) | `counts`, `cut_distribution`, `sampled_mean_cut`, `sampled_approximation_ratio`, `shots`, `seed` | Noiseless `StatevectorSampler` samples (Qiskit-order keys) |
 | | `best_observed_cut` / `_bitstring` / `_assignment` / `_partition` / `_ratio`, `most_frequent_bitstring` | Best and most frequent sample. Not the expected value |
 | | `best_observed_is_exact_optimum` | Explicit comparison \|best_observed_cut − optimum\| ≤ 1e-9. `None` if no exact reference |
+| | `sampled_optimal_frequency` | Fraction of shots whose cut equals the optimum: the **finite-shot success frequency**. It estimates `optimal_solution_probability` but isn't the same quantity. `None` if no exact reference |
 | Optimizer status | `optimizer_success` | SciPy termination flag of the best restart. **Does not imply** the Max-Cut optimum was found, and `False` doesn't mean it wasn't. Both cases are tested |
 | | `optimizer` | Settings plus per-restart traces (start/end point, nfev, success, message, history) |
 | Metadata | `graph`, `bit_order`, `evaluation_mode`, `circuit`, `runtime_seconds` | |

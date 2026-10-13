@@ -364,6 +364,7 @@ class QAOAConfig:
         objective: ``"statevector"`` (exact expectation, default) or ``"shots"``
             (sampled mean cut with ``shots`` per evaluation).
         shots: Shots for final sampling (and for the objective in ``"shots"`` mode).
+            Default 4096 = the PS-O1 Challenge Kit setting for reported sampled results.
         seed: Seed for initial points and the sampler.
         gamma_range / beta_range: INITIALISATION ranges only. Random starting
             angles are drawn uniformly from them; they are NOT optimiser bounds.
@@ -390,7 +391,7 @@ class QAOAConfig:
     n_restarts: int = 3
     initial_point: Sequence[float] | None = None
     objective: str = "statevector"
-    shots: int = 2048
+    shots: int = 4096
     seed: int | None = 1234
     gamma_range: tuple[float, float] = (0.0, math.pi)
     beta_range: tuple[float, float] = (0.0, math.pi / 2)
@@ -526,8 +527,10 @@ class QAOAResult:
       (max cut among states with probability > ``statevector_probability_threshold``).
     * Finite-shot samples (stochastic, seeded by ``seed``): ``counts``,
       ``cut_distribution``, ``sampled_mean_cut``, ``sampled_approximation_ratio``,
-      ``best_observed_*``, ``most_frequent_bitstring``. The best observed sample
-      is NOT the expected value.
+      ``best_observed_*``, ``most_frequent_bitstring``, ``sampled_optimal_frequency``
+      (fraction of shots whose cut equals the exact optimum -- the finite-shot
+      success frequency, an estimate of ``optimal_solution_probability``, not the
+      same quantity). The best observed sample is NOT the expected value.
     * Optimiser status: ``optimizer_success`` is SciPy's termination flag for the
       best restart (details in ``optimizer``). It says the optimiser stopped
       normally, NOT that the Max-Cut optimum was found.
@@ -561,6 +564,7 @@ class QAOAResult:
     best_observed_partition: list[list[int]]
     best_observed_ratio: float | None
     best_observed_is_exact_optimum: bool | None
+    sampled_optimal_frequency: float | None
     most_frequent_bitstring: str
     bit_order: str
     evaluation_mode: str
@@ -639,6 +643,8 @@ def run_qaoa(
         best_observed_partition=[list(s) for s in best.partition],
         best_observed_ratio=ratio(best.cut_value),
         best_observed_is_exact_optimum=(None if opt is None else abs(best.cut_value - opt) <= CUT_ATOL),
+        sampled_optimal_frequency=(None if opt is None else
+                                   sum(s.count for s in samples if abs(s.cut_value - opt) <= CUT_ATOL) / config.shots),
         most_frequent_bitstring=most_frequent,
         bit_order=BIT_ORDER,
         evaluation_mode=f"optimise:{config.objective}; report:statevector expectation + {config.shots} noiseless shots",

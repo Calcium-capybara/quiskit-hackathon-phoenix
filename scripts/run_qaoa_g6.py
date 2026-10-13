@@ -26,7 +26,7 @@ SUMMARY_FIELDS = (
     "p", "optimal_value", "expected_cut", "expected_approximation_ratio", "optimal_solution_probability",
     "best_cut_with_statevector_probability", "statevector_probability_threshold",
     "sampled_mean_cut", "sampled_approximation_ratio", "best_observed_cut", "best_observed_bitstring",
-    "best_observed_is_exact_optimum", "most_frequent_bitstring", "optimizer_success", "gammas", "betas",
+    "best_observed_is_exact_optimum", "sampled_optimal_frequency", "most_frequent_bitstring", "optimizer_success", "gammas", "betas",
     "shots", "seed", "bit_order",
 )
 
@@ -38,7 +38,7 @@ def main() -> None:
     ap.add_argument("--seed", type=int, default=7)
     ap.add_argument("--maxiter", type=int, default=200)
     ap.add_argument("--restarts", type=int, default=3)
-    ap.add_argument("--shots", type=int, default=2048)
+    ap.add_argument("--shots", type=int, default=4096)  # Challenge Kit setting for reported samples
     ap.add_argument("--output", type=Path, default=None, help="optional path for the full JSON result")
     args = ap.parse_args()
 

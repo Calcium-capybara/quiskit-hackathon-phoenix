@@ -319,3 +319,31 @@ def test_statevector_support_equals_optimum_even_for_uniform_state():
     probs = statevector_probabilities(build_qaoa_circuit(G6, 1), [0.0], [0.0])
     assert best_cut_with_statevector_probability(probs, all_cut_values(G6), 1e-12) == 24.0
     assert probs[np.isclose(all_cut_values(G6), 24.0)].sum() == pytest.approx(2 / 64)  # yet P(optimal) is tiny
+
+
+# -- Challenge Kit settings and success frequency ------------------------------------
+
+
+def test_default_shots_follow_challenge_kit():
+    assert QAOAConfig().shots == 4096
+
+
+def test_sampled_optimal_frequency_is_finite_shot_success_rate():
+    r = run_qaoa(G6, QAOAConfig(p=1, **FAST))
+    hits = sum(s.count for s in decode_counts(G6, r.counts) if s.cut_value == 24.0)
+    assert r.sampled_optimal_frequency == hits / r.shots                  # counted from samples
+    assert r.sampled_optimal_frequency == pytest.approx(r.optimal_solution_probability, abs=0.05)  # estimates it
+    assert r.best_observed_is_exact_optimum == (hits > 0)
+
+
+def test_sampled_optimal_frequency_differs_from_statevector_probability(monkeypatch):
+    """Uniform state: P(optimal) = 2/64 exactly; 64 shots give a different, sampled frequency."""
+    monkeypatch.setattr(qs, "minimize", fake_minimize(True))
+    r = run_qaoa(G6, QAOAConfig(p=1, n_restarts=1, shots=64, seed=5))
+    assert r.optimal_solution_probability == pytest.approx(2 / 64)
+    assert r.sampled_optimal_frequency * 64 == int(r.sampled_optimal_frequency * 64)  # a count / shots
+
+
+def test_sampled_optimal_frequency_none_without_exact_reference():
+    r = run_qaoa(G6, QAOAConfig(p=1, n_restarts=1, maxiter=10, shots=64, seed=1), max_exact_nodes=3)
+    assert r.sampled_optimal_frequency is None

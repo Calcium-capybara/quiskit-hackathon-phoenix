@@ -53,10 +53,10 @@ The default path is resolved relative to the source file, not the current direct
 |---|---|
 | Exact classical reference | `optimal_value`, `exact` |
 | Statevector (exact for the given angles) | `expected_cut`, `expected_approximation_ratio`, `optimal_solution_probability`, `best_cut_with_statevector_probability` (max cut over states with probability **strictly greater than** `statevector_probability_threshold`, default 1e-12) |
-| Finite-shot samples (noiseless, seeded) | `counts`, `sampled_mean_cut`, `sampled_approximation_ratio`, `best_observed_cut`, `best_observed_is_exact_optimum`, `most_frequent_bitstring` |
+| Finite-shot samples (noiseless, seeded; 4096 shots by default, the Challenge Kit setting) | `counts`, `sampled_mean_cut`, `sampled_approximation_ratio`, `best_observed_cut`, `best_observed_is_exact_optimum`, `sampled_optimal_frequency` (fraction of shots that hit the optimum), `most_frequent_bitstring` |
 | Optimizer status | `optimizer_success`: termination only, **not** proof that the optimum was found |
 
-`best_cut_with_statevector_probability` almost always equals the optimum, even for unoptimized angles; for example, the uniform state already supports 24. Use `optimal_solution_probability` to judge solution quality.
+`best_cut_with_statevector_probability` almost always equals the optimum, even for unoptimized angles; for example, the uniform state already supports 24. Use `optimal_solution_probability` (exact, from the statevector) and `sampled_optimal_frequency` (finite-shot success frequency, which estimates it) to judge solution quality.
 
 ### Reproducibility
 
