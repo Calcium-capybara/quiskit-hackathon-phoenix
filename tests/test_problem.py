@@ -347,3 +347,54 @@ def test_edgeless_graph_has_zero_optimum_and_undefined_ratio():
 
 def test_approximation_ratio():
     assert approximation_ratio(8.25, 11.0) == pytest.approx(0.75)
+
+
+# -- encoders/decoders validate entries (audit fix) ------------------------------
+
+
+@pytest.mark.parametrize(
+    "bad,exc",
+    [([2, 1], ValueError), ([0, -1], ValueError), ([True, 0], TypeError), ([0.7, 1], TypeError),
+     ({0, 1}, TypeError), ("01", TypeError), ([], ValueError)],
+    ids=["two", "minus_one", "bool", "float", "set", "str", "empty"],
+)
+@pytest.mark.parametrize(
+    "fn",
+    [lambda a: assignment_to_bitstring(a, order="vertex"), lambda a: assignment_to_bitstring(a, order="qiskit"),
+     assignment_to_index, partition],
+    ids=["to_bitstring_vertex", "to_bitstring_qiskit", "to_index", "partition"],
+)
+def test_assignment_helpers_reject_invalid_entries(fn, bad, exc):
+    with pytest.raises(exc):
+        fn(bad)
+
+
+def test_partition_no_longer_drops_vertices():
+    """Before the fix, partition([2, 0, 1]) silently returned ((1,), (2,)) and lost vertex 0."""
+    with pytest.raises(ValueError):
+        partition([2, 0, 1])
+
+
+@pytest.mark.parametrize("index,n,exc", [(True, 1, TypeError), (1.0, 2, TypeError), (0, 0, ValueError),
+                                         (0, True, TypeError), (-1, 3, ValueError)])
+def test_index_to_assignment_validation(index, n, exc):
+    with pytest.raises(exc):
+        index_to_assignment(index, n)
+
+
+@pytest.mark.parametrize("n,exc", [(0, ValueError), (True, TypeError), (2.0, TypeError)])
+def test_bitstring_to_assignment_validates_num_nodes(n, exc):
+    with pytest.raises(exc):
+        bitstring_to_assignment("", n, order="qiskit")
+
+
+def test_both_bit_orders_on_g6_non_palindromic_key():
+    """Vertex order: leftmost = vertex 0. Qiskit order: rightmost = vertex 0. Never interchangeable."""
+    g = load_graph()
+    x = (1, 1, 0, 0, 0, 0)  # vertices {0,1} on side 1: (0,2)2 + (0,5)4 + (1,2)5 + (1,3)2 = 13
+    assert assignment_to_bitstring(x, order="vertex") == "110000"
+    assert assignment_to_bitstring(x, order="qiskit") == "000011"
+    assert cut_value_from_bitstring(g, "110000", order="vertex") == 13.0
+    assert cut_value_from_bitstring(g, "000011", order="qiskit") == 13.0
+    assert cut_value_from_bitstring(g, "110000", order="qiskit") == 9.0  # misread: vertices {4,5}
+    assert assignment_to_index(x) == 3  # vertex 0 = least-significant bit

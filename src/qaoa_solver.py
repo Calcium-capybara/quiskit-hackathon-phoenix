@@ -318,15 +318,27 @@ def best_cut_with_statevector_probability(
 
     Statevector-derived (exact probabilities, no sampling): it says which cut
     values the QAOA state supports, not what a finite number of shots observed.
-    Returns ``None`` if no state exceeds the threshold. Note: generic QAOA states
-    give every basis state non-negligible probability, so this is often just the
-    exact optimum; ``optimal_solution_probability`` is the more informative
-    statevector quality measure.
+    Returns ``None`` if no state exceeds the threshold.
+
+    NOT evidence that QAOA "found" the optimum: any probability above the
+    threshold on an optimal assignment is enough, so this usually equals the
+    exact optimum even for unconverged or random angles (e.g. the uniform state
+    at gamma = beta = 0). Use ``optimal_solution_probability`` to judge how much
+    weight the state puts on optimal cuts, and ``best_observed_cut`` for what
+    finite sampling actually produced.
+
+    ``threshold`` must be finite and in [0, 1); probabilities must be finite
+    and non-negative.
     """
     probabilities = np.asarray(probabilities, dtype=float)
     cut_values = np.asarray(cut_values, dtype=float)
     if probabilities.shape != cut_values.shape:
         raise ValueError("probabilities and cut_values must have the same shape")
+    threshold = _require_real("threshold", threshold)
+    if not 0.0 <= threshold < 1.0:
+        raise ValueError(f"threshold must be in [0, 1), got {threshold}")
+    if not np.all(np.isfinite(probabilities)) or np.any(probabilities < 0):
+        raise ValueError("probabilities must be finite and non-negative")
     mask = probabilities > threshold
     return float(cut_values[mask].max()) if mask.any() else None
 
@@ -385,14 +397,55 @@ class QAOAConfig:
     statevector_probability_threshold: float = 1e-12
 
     def validate(self) -> None:
-        if not 0.0 <= self.statevector_probability_threshold < 1.0:
-            raise ValueError("statevector_probability_threshold must be in [0, 1)")
+        """Reject invalid settings up front (``TypeError`` for types, ``ValueError`` for values).
+
+        Nothing is coerced or silently repaired: ``bool`` is not accepted where an
+        int is required, and non-finite numbers are rejected.
+        """
+        for name in ("p", "maxiter", "n_restarts", "shots"):
+            _require_int(name, getattr(self, name), minimum=1)
+        if not isinstance(self.optimizer, str) or not self.optimizer:
+            raise TypeError(f"optimizer must be a non-empty str, got {self.optimizer!r}")
         if self.objective not in ("statevector", "shots"):
             raise ValueError(f"objective must be 'statevector' or 'shots', got {self.objective!r}")
-        if self.n_restarts < 1 or self.maxiter < 1 or self.shots < 1:
-            raise ValueError("n_restarts, maxiter and shots must be >= 1")
-        if self.initial_point is not None and len(self.initial_point) != 2 * self.p:
-            raise ValueError(f"initial_point must have length 2p = {2 * self.p}")
+        if self.tol is not None:
+            _require_real("tol", self.tol)
+            if self.tol <= 0:
+                raise ValueError(f"tol must be > 0 or None, got {self.tol}")
+        if self.seed is not None:
+            _require_int("seed", self.seed, minimum=0)  # numpy and Qiskit seeds must be non-negative
+        for name in ("gamma_range", "beta_range"):
+            rng = getattr(self, name)
+            if not (isinstance(rng, (tuple, list)) and len(rng) == 2):
+                raise TypeError(f"{name} must be a (low, high) pair, got {rng!r}")
+            lo, hi = (_require_real(f"{name}[{i}]", x) for i, x in enumerate(rng))
+            if not lo < hi:
+                raise ValueError(f"{name} must satisfy low < high, got {rng!r}")
+        if self.initial_point is not None:
+            if isinstance(self.initial_point, (str, bytes)) or not hasattr(self.initial_point, "__len__"):
+                raise TypeError(f"initial_point must be a sequence of 2p numbers, got {self.initial_point!r}")
+            if len(self.initial_point) != 2 * self.p:
+                raise ValueError(f"initial_point must have length 2p = {2 * self.p}")
+            for i, x in enumerate(self.initial_point):
+                _require_real(f"initial_point[{i}]", x)
+        _require_real("statevector_probability_threshold", self.statevector_probability_threshold)
+        if not 0.0 <= self.statevector_probability_threshold < 1.0:
+            raise ValueError("statevector_probability_threshold must be in [0, 1)")
+
+
+def _require_int(name: str, value: Any, *, minimum: int) -> None:
+    if isinstance(value, bool) or not isinstance(value, (int, np.integer)):
+        raise TypeError(f"{name} must be an int, got {type(value).__name__} {value!r}")
+    if value < minimum:
+        raise ValueError(f"{name} must be >= {minimum}, got {value}")
+
+
+def _require_real(name: str, value: Any) -> float:
+    if isinstance(value, bool) or not isinstance(value, (int, float, np.integer, np.floating)):
+        raise TypeError(f"{name} must be a real number, got {type(value).__name__} {value!r}")
+    if not math.isfinite(value):
+        raise ValueError(f"{name} must be finite, got {value}")
+    return float(value)
 
 
 @dataclass

@@ -400,6 +400,14 @@ def validate_assignment(graph: WeightedGraph, assignment: Sequence[Any]) -> tupl
     such as ``1.0``. Rejected with ``ValueError``: wrong length (including an
     empty assignment), multi-dimensional arrays, and integers other than 0/1.
     """
+    values = _assignment_values(assignment)
+    if len(values) != graph.num_nodes:
+        raise ValueError(f"assignment has length {len(values)}, expected {graph.num_nodes}")
+    return _check_bits(values)
+
+
+def _assignment_values(assignment: Any) -> tuple[Any, ...]:
+    """Container checks shared by every assignment-consuming function."""
     if isinstance(assignment, (str, bytes, bytearray)):
         raise TypeError(
             "assignment must be a sequence of 0/1 ints; convert strings with "
@@ -408,16 +416,17 @@ def validate_assignment(graph: WeightedGraph, assignment: Sequence[Any]) -> tupl
     if isinstance(assignment, np.ndarray):
         if assignment.ndim != 1:
             raise ValueError(f"assignment array must be 1-D, got shape {assignment.shape}")
-        values = tuple(assignment.tolist())  # numpy scalars -> Python int/float/bool
-    elif isinstance(assignment, SequenceABC):
-        values = tuple(assignment)
-    else:
-        raise TypeError(
-            f"assignment must be an ordered sequence (list, tuple or 1-D numpy array), "
-            f"got {type(assignment).__name__}"
-        )
-    if len(values) != graph.num_nodes:
-        raise ValueError(f"assignment has length {len(values)}, expected {graph.num_nodes}")
+        return tuple(assignment.tolist())  # numpy scalars -> Python int/float/bool
+    if isinstance(assignment, SequenceABC):
+        return tuple(assignment)
+    raise TypeError(
+        f"assignment must be an ordered sequence (list, tuple or 1-D numpy array), "
+        f"got {type(assignment).__name__}"
+    )
+
+
+def _check_bits(values: tuple[Any, ...]) -> tuple[int, ...]:
+    """Entry checks shared by every assignment-consuming function."""
     out = []
     for i, b in enumerate(values):
         if isinstance(b, (bool, np.bool_)) or not isinstance(b, (int, np.integer)):
@@ -426,6 +435,22 @@ def validate_assignment(graph: WeightedGraph, assignment: Sequence[Any]) -> tupl
             raise ValueError(f"assignment[{i}] must be 0 or 1, got {b!r}")
         out.append(int(b))
     return tuple(out)
+
+
+def _bits_any_length(assignment: Any) -> tuple[int, ...]:
+    """Validated non-empty 0/1 tuple, for helpers that have no graph to check length against."""
+    values = _assignment_values(assignment)
+    if not values:
+        raise ValueError("assignment must not be empty")
+    return _check_bits(values)
+
+
+def _check_num_nodes(num_nodes: Any) -> int:
+    if isinstance(num_nodes, bool) or not isinstance(num_nodes, (int, np.integer)):
+        raise TypeError(f"num_nodes must be an int, got {type(num_nodes).__name__} {num_nodes!r}")
+    if num_nodes < 1:
+        raise ValueError(f"num_nodes must be >= 1, got {num_nodes}")
+    return int(num_nodes)
 
 
 def bitstring_to_assignment(bitstring: str, num_nodes: int, *, order: BitOrder) -> tuple[int, ...]:
@@ -437,6 +462,7 @@ def bitstring_to_assignment(bitstring: str, num_nodes: int, *, order: BitOrder) 
         order: ``"qiskit"`` (rightmost char = vertex 0) or ``"vertex"``
             (leftmost char = vertex 0). Required, to prevent silent reversals.
     """
+    num_nodes = _check_num_nodes(num_nodes)
     if not isinstance(bitstring, str):
         raise TypeError(f"bitstring must be a str, got {type(bitstring).__name__}")
     if " " in bitstring:
@@ -455,8 +481,8 @@ def bitstring_to_assignment(bitstring: str, num_nodes: int, *, order: BitOrder) 
 
 
 def assignment_to_bitstring(assignment: Sequence[int], *, order: BitOrder) -> str:
-    """Inverse of :func:`bitstring_to_assignment`."""
-    s = "".join(str(int(b)) for b in assignment)
+    """Inverse of :func:`bitstring_to_assignment`. Entries are validated like :func:`cut_value`."""
+    s = "".join(str(b) for b in _bits_any_length(assignment))
     if order == "qiskit":
         return s[::-1]
     if order == "vertex":
@@ -466,20 +492,25 @@ def assignment_to_bitstring(assignment: Sequence[int], *, order: BitOrder) -> st
 
 def assignment_to_index(assignment: Sequence[int]) -> int:
     """Computational-basis index ``k = sum_i x_i 2**i`` (vertex i = bit i, Qiskit convention)."""
-    return sum(int(b) << i for i, b in enumerate(assignment))
+    return sum(b << i for i, b in enumerate(_bits_any_length(assignment)))
 
 
 def index_to_assignment(index: int, num_nodes: int) -> tuple[int, ...]:
     """Inverse of :func:`assignment_to_index`."""
+    num_nodes = _check_num_nodes(num_nodes)
+    if isinstance(index, bool) or not isinstance(index, (int, np.integer)):
+        raise TypeError(f"index must be an int, got {type(index).__name__} {index!r}")
+    index = int(index)
     if not 0 <= index < 2**num_nodes:
         raise ValueError(f"index {index} out of range for {num_nodes} vertices")
     return tuple((index >> i) & 1 for i in range(num_nodes))
 
 
 def partition(assignment: Sequence[int]) -> tuple[tuple[int, ...], tuple[int, ...]]:
-    """Split vertices into ``(side_0, side_1)`` according to the assignment."""
-    side0 = tuple(i for i, b in enumerate(assignment) if b == 0)
-    side1 = tuple(i for i, b in enumerate(assignment) if b == 1)
+    """Split vertices into ``(side_0, side_1)`` according to the assignment (entries validated)."""
+    bits = _bits_any_length(assignment)
+    side0 = tuple(i for i, b in enumerate(bits) if b == 0)
+    side1 = tuple(i for i, b in enumerate(bits) if b == 1)
     return side0, side1
 
 

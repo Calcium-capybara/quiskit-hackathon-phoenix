@@ -1,0 +1,8 @@
+# Exact versions the test suite was run against (Python 3.14.7, Windows).
+# Imported by the repository today: qiskit, numpy, scipy, networkx, pytest.
+# Add other packages (e.g. matplotlib, qiskit-aer) when code that imports them lands.
+qiskit==2.5.2
+numpy==2.5.4
+scipy==1.18.1
+networkx==3.7
+pytest==9.1.1

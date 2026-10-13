@@ -328,3 +328,47 @@ def test_logical_circuit_for_routing():
     assert bound.num_parameters == 0
     with pytest.raises(ValueError):
         logical_circuit_for_routing(g, 2, [0.1, 0.2])
+
+
+# -- strict QAOAConfig validation (audit fix) -------------------------------------
+# Before the fix, shots=True, maxiter=2.5, n_restarts=True, seed=True and tol<=0/NaN were
+# silently accepted, and NaN initial points / reversed ranges failed late with obscure errors.
+
+
+@pytest.mark.parametrize(
+    "kwargs,exc",
+    [
+        (dict(p=0), ValueError), (dict(p=True), TypeError), (dict(p=1.0), TypeError),
+        (dict(maxiter=2.5), TypeError), (dict(maxiter=0), ValueError), (dict(maxiter=True), TypeError),
+        (dict(n_restarts=True), TypeError), (dict(n_restarts=0), ValueError),
+        (dict(shots=True), TypeError), (dict(shots=0), ValueError), (dict(shots=10.0), TypeError),
+        (dict(tol=-1.0), ValueError), (dict(tol=0.0), ValueError), (dict(tol=math.nan), ValueError),
+        (dict(tol="1e-6"), TypeError),
+        (dict(seed=True), TypeError), (dict(seed=1.5), TypeError), (dict(seed=-1), ValueError),
+        (dict(optimizer=""), TypeError), (dict(optimizer=None), TypeError),
+        (dict(objective="magic"), ValueError),
+        (dict(gamma_range=(1.0, 0.0)), ValueError), (dict(gamma_range=(0.0, math.inf)), ValueError),
+        (dict(beta_range=(math.nan, 1.0)), ValueError), (dict(beta_range=(0.0,)), TypeError),
+        (dict(gamma_range=(0, True)), TypeError),
+        (dict(initial_point=[math.nan, 0.1]), ValueError), (dict(initial_point=[math.inf, 0.1]), ValueError),
+        (dict(initial_point=[0.1, "0.2"]), TypeError), (dict(initial_point=[0.1]), ValueError),
+        (dict(initial_point=0.1), TypeError),
+        (dict(statevector_probability_threshold=math.nan), ValueError),
+        (dict(statevector_probability_threshold=-0.1), ValueError),
+        (dict(statevector_probability_threshold=1.0), ValueError),
+    ],
+)
+def test_config_rejects_invalid_settings(kwargs, exc):
+    with pytest.raises(exc):
+        QAOAConfig(**kwargs).validate()
+
+
+def test_config_defaults_and_valid_variants_pass():
+    QAOAConfig().validate()
+    QAOAConfig(p=2, tol=None, seed=None, initial_point=[0.1, 0.2, 0.3, 0.4], gamma_range=(-1, 1)).validate()
+    QAOAConfig(seed=np.int64(3), shots=np.int64(10)).validate()
+
+
+def test_run_qaoa_validates_before_doing_work():
+    with pytest.raises(TypeError):
+        run_qaoa(PATH, QAOAConfig(shots=True))

@@ -41,6 +41,7 @@ Edges are stored canonically as `(u, v, w)` with u < v, sorted.
   - `TypeError` for strings or bytes, unordered or non-sequence inputs (set, dict, generator, scalar), and non-`int` entries (bool, float, str, None);
   - `ValueError` for a wrong length (including an empty assignment), a multi-dimensional array, or integers other than 0/1;
   - valid assignments score exactly as before;
+  - the same entry checks apply to `assignment_to_bitstring`, `assignment_to_index` and `partition`. Before this check existed, `partition([2,0,1])` silently dropped vertex 0;
 - a bitstring with an explicit order, with `cut_value_from_bitstring`;
 - a partition `(side0, side1)`, with `cut_value_from_partition`. The two sides must be disjoint and must cover every vertex.
 
@@ -99,6 +100,21 @@ Example (n=4): key `"1000"` → x = (0,0,0,1) → cut 7 on the synthetic weighte
 | `seed` | 1234 |
 | `statevector_probability_threshold` | `1e-12` |
 
+**Config validation.** `QAOAConfig.validate()` runs inside `run_qaoa` and `optimize_parameters`, before any work starts. Nothing is coerced or silently repaired.
+- **`TypeError`:**
+  - `p`, `maxiter`, `n_restarts` or `shots` that aren't `int` (including `bool`);
+  - a `seed` that isn't an `int`;
+  - an empty or non-string `optimizer`;
+  - malformed ranges or a malformed `initial_point`.
+- **`ValueError`:**
+  - `p`, `maxiter`, `n_restarts` or `shots` below 1, or `seed` < 0;
+  - `tol` that is ≤ 0 or non-finite;
+  - ranges with non-finite values or low ≥ high;
+  - a non-finite `initial_point` value or a length other than 2p;
+  - a threshold that isn't finite or isn't in [0, 1).
+
+Previously, `shots=True`, `maxiter=2.5`, `seed=True` and `tol=-1` were accepted silently. SciPy then silently replaced the invalid `tol`.
+
 **Initialization ranges are not bounds.** Random starting angles are drawn from `gamma_range = [0, π)` and `beta_range = [0, π/2)` in `optimize_parameters`. `scipy.optimize.minimize(method="COBYLA")` is called **without `bounds` or constraints**, so the optimizer may move outside these ranges.
 - The returned `gammas` and `betas` can lie outside them; an earlier synthetic run returned β = −0.39.
 - A user-supplied `initial_point` is used as given, without clipping.
@@ -113,7 +129,7 @@ Example (n=4): key `"1000"` → x = (0,0,0,1) → cut 7 on the synthetic weighte
 | Optimized parameters | `gammas`, `betas`, `p` | Best restart's final angles (unbounded; see above) |
 | Statevector (deterministic for given angles, up to floating point) | `expected_cut`, `expected_approximation_ratio` | Exact ⟨Ĉ⟩ and ⟨Ĉ⟩ / optimum |
 | | `optimal_solution_probability` | Total probability on all optimal assignments |
-| | `best_cut_with_statevector_probability`, `statevector_probability_threshold` | Max cut over basis states with probability **strictly >** threshold (default 1e-12). `None` if no state qualifies. Usually equals the optimum, because QAOA states spread probability widely. **Not** a sampled result |
+| | `best_cut_with_statevector_probability`, `statevector_probability_threshold` | Max cut over basis states with probability **strictly >** threshold (default 1e-12; must be finite and in [0, 1)). `None` if no state qualifies. **Not** a sampled result, and **not** evidence of optimization: even the uniform state at γ = β = 0 supports 24 on G6 (a test checks this). Use `optimal_solution_probability` instead |
 | Finite-shot (stochastic, seeded) | `counts`, `cut_distribution`, `sampled_mean_cut`, `sampled_approximation_ratio`, `shots`, `seed` | Noiseless `StatevectorSampler` samples (Qiskit-order keys) |
 | | `best_observed_cut` / `_bitstring` / `_assignment` / `_partition` / `_ratio`, `most_frequent_bitstring` | Best and most frequent sample. Not the expected value |
 | | `best_observed_is_exact_optimum` | Explicit comparison \|best_observed_cut − optimum\| ≤ 1e-9. `None` if no exact reference |
@@ -162,9 +178,12 @@ bound = qaoa.bind(gammas, betas)                 # or logical_circuit_for_routin
 ## 6. Reproduction
 
 ```
-.venv\Scripts\python -m pytest tests -q
+.venv\Scripts\python -m pytest -q                       # pytest.ini makes this work from any directory
+.venv\Scripts\python -m scripts.run_qaoa_g6 --p 1 --seed 7   # G6 sample run, prints JSON
 .venv\Scripts\python -m scripts.run_qaoa_synthetic
 ```
+
+Dependencies are pinned in `requirements.txt`.
 
 The experiment script writes `results/tables/synthetic_logical_qaoa.json` and `..._summary.csv`.
 

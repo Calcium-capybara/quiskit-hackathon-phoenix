@@ -297,3 +297,25 @@ def test_result_quantities_are_distinct_and_serialisable():
                   "statevector_probability_threshold"):
         assert field in d
     assert "best_cut_with_nonzero_probability" not in d          # ambiguous legacy name not used
+
+
+# -- statevector metric is not proof of optimisation (audit fix) -------------------
+
+
+@pytest.mark.parametrize("thr", [math.nan, math.inf, -1e-12, 1.0])
+def test_metric_helper_rejects_invalid_threshold(thr):
+    with pytest.raises(ValueError):
+        best_cut_with_statevector_probability(np.array([0.5, 0.5]), np.array([1.0, 2.0]), thr)
+
+
+@pytest.mark.parametrize("probs", [[np.nan, 1.0], [-0.1, 1.1], [np.inf, 0.0]])
+def test_metric_helper_rejects_invalid_probabilities(probs):
+    with pytest.raises(ValueError):
+        best_cut_with_statevector_probability(np.array(probs), np.array([9.0, 2.0]), 1e-12)
+
+
+def test_statevector_support_equals_optimum_even_for_uniform_state():
+    """gamma = beta = 0 (no optimisation at all) already 'supports' the optimum 24."""
+    probs = statevector_probabilities(build_qaoa_circuit(G6, 1), [0.0], [0.0])
+    assert best_cut_with_statevector_probability(probs, all_cut_values(G6), 1e-12) == 24.0
+    assert probs[np.isclose(all_cut_values(G6), 24.0)].sum() == pytest.approx(2 / 64)  # yet P(optimal) is tiny
